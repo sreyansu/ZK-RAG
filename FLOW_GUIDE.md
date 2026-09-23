@@ -2,11 +2,63 @@
 
 This document explains the technical workflow of our newly updated ZK-RAG application, which operates like a verifiable search engine. Instead of a user uploading a document to ask questions about, the system comes pre-loaded with a library of verified sources.
 
+## Comparison: Standard RAG vs. ZK-RAG
+
+### Standard RAG Architecture
+In standard RAG, the AI provides a citation link, but there is no proof that the cited text wasn't hallucinated or altered after the fact.
+
+```mermaid
+graph LR
+    A[User Query] --> B[Vector DB Search]
+    B --> C[Retrieve Context]
+    C --> D[LLM Generation]
+    D --> E[Answer + Bare Link Citation]
+    style E fill:#ffcccc,stroke:#cc0000
+```
+
+### ZK-RAG Architecture
+In ZK-RAG, the system pre-commits documents using cryptographic hashing. Citations are accompanied by Zero-Knowledge proofs guaranteeing the text exists in the original source.
+
+```mermaid
+graph LR
+    A[User Query] --> B[Vector DB Search]
+    B --> C[Retrieve Context]
+    C --> D[LLM Generation]
+    D --> E[Answer + Citation]
+    E --> F{User Requests Proof}
+    F -->|snarkjs Prover| G[Groth16 ZK-Proof]
+    G --> H[Verify against Public Merkle Root]
+    H -->|Match| I[✅ Cryptographically Verified]
+    H -->|Mismatch| J[❌ Source Forged]
+    
+    style I fill:#ccffcc,stroke:#00cc00
+    style J fill:#ffcccc,stroke:#cc0000
+    style G fill:#ccccff,stroke:#0000cc
+```
+
+---
+
 ## 1. Knowledge Base Initialization (The "Indexing" Phase)
 *When the application starts, it builds the cryptographic foundation for all its sources.*
 
 **Endpoint:** `GET /api/init`
 **File:** `lib/store.js` -> `initKnowledgeBase()`
+
+```mermaid
+sequenceDiagram
+    participant App as Application
+    participant Chunker as lib/chunker.js
+    participant Poseidon as lib/poseidon.js
+    participant Merkle as lib/merkle.js
+    participant Store as Vector Store
+
+    App->>App: Load data/*.txt files
+    App->>Chunker: Split into sentences/paragraphs
+    App->>Poseidon: Hash each chunk
+    App->>Merkle: Build Merkle Tree per document
+    Merkle-->>App: Publish Merkle Root
+    App->>Store: Save Embeddings & Hashes
+```
 
 1. **Document Loading**: The system reads multiple verified text files (e.g., `creatine.txt`, `ai-alignment.txt`, `quantum.txt`) from the `data/` directory.
 2. **Chunking**: Each document is independently split into smaller chunks (sentences/paragraphs) using `lib/chunker.js`.
@@ -36,6 +88,15 @@ This document explains the technical workflow of our newly updated ZK-RAG applic
 
 **Endpoint:** `POST /api/prove`
 **File:** `lib/prover.js`
+
+```mermaid
+flowchart TD
+    A[Get Cited Chunk Text] --> B(Lookup Original Poseidon Hash)
+    B --> C(Lookup Merkle Path Siblings)
+    C --> D(Lookup Document Merkle Root)
+    D --> E{merkle_inclusion.circom}
+    E -->|snarkjs.groth16| F[Generate Proof]
+```
 
 1. **Data Lookup**: The backend looks up the cited chunk. It retrieves:
    - The chunk's Poseidon Hash.

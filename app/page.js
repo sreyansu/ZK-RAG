@@ -2,6 +2,8 @@
 
 import { useState, useRef, useEffect } from 'react';
 
+let ChartJS = null;
+
 export default function Home() {
   const [kbStatus, setKbStatus] = useState(null);
   const [query, setQuery] = useState('');
@@ -13,7 +15,11 @@ export default function Home() {
   const [proofData, setProofData] = useState({});
   const [tamperOpen, setTamperOpen] = useState({});
   const [tamperText, setTamperText] = useState({});
+  const [bench, setBench] = useState(null);
   const [busy, setBusy] = useState({});
+  
+  const chartRef = useRef(null);
+  const chartInst = useRef(null);
 
   const setB = (k, v) => setBusy(b => ({ ...b, [k]: v }));
 
@@ -56,7 +62,6 @@ export default function Home() {
     const vKey = `${docId}-${cid}`;
     setB(`v${vKey}`, true); setVerifs(v => ({ ...v, [vKey]: null }));
     try {
-      // 1. Get Proof
       const pr = await fetch('/api/prove', { 
         method: 'POST', 
         headers: { 'Content-Type': 'application/json' }, 
@@ -66,10 +71,8 @@ export default function Home() {
       if (!pd.success) { setVerifs(v => ({ ...v, [vKey]: { error: pd.error } })); setB(`v${vKey}`, false); return; }
       setProofData(p => ({ ...p, [vKey]: pd }));
 
-      // Get the correct root from kbStatus
       const doc = kbStatus.documents.find(d => d.id === docId);
 
-      // 2. Verify Proof Standalone
       const vr = await fetch('/api/verify', { 
         method: 'POST', 
         headers: { 'Content-Type': 'application/json' }, 
@@ -119,6 +122,47 @@ export default function Home() {
     } catch (e) { alert(e.message); }
     setB(`r${tKey}`, false);
   };
+
+  // ── Benchmark ──
+  const benchmark = async () => {
+    setB('bench', true);
+    try {
+      const r = await fetch('/api/benchmark');
+      const d = await r.json();
+      if (d.success) setBench(d);
+      else alert(d.error);
+    } catch (e) { alert(e.message); }
+    setB('bench', false);
+  };
+
+  useEffect(() => {
+    if (!bench || !chartRef.current) return;
+    (async () => {
+      if (!ChartJS) { const m = await import('chart.js'); m.Chart.register(...m.registerables); ChartJS = m.Chart; }
+      if (chartInst.current) chartInst.current.destroy();
+      chartInst.current = new ChartJS(chartRef.current.getContext('2d'), {
+        type: 'bar',
+        data: {
+          labels: bench.results.map(r => `Chunk ${r.chunkId}`),
+          datasets: [
+            { label: 'Baseline RAG (ms)', data: bench.results.map(r => r.baselineMs), backgroundColor: '#7c3aed', borderRadius: 4 },
+            { label: 'ZK Proof Gen (ms)', data: bench.results.map(r => Math.max(r.proofGenMs, 0)), backgroundColor: '#0891b2', borderRadius: 4 },
+            { label: 'ZK Verification (ms)', data: bench.results.map(r => Math.max(r.proofVerifyMs, 0)), backgroundColor: '#16a34a', borderRadius: 4 },
+          ],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { labels: { color: '#a1a1aa', font: { family: 'Inter', size: 11 } } } },
+          scales: {
+            x: { grid: { color: '#27272a' }, ticks: { color: '#71717a' } },
+            y: { grid: { color: '#27272a' }, ticks: { color: '#71717a', callback: v => v + 'ms' } },
+          },
+        },
+      });
+    })();
+    return () => { if (chartInst.current) chartInst.current.destroy(); };
+  }, [bench]);
+
 
   // ────────── RENDER ──────────
 
@@ -247,6 +291,27 @@ export default function Home() {
           </div>
         )}
       </div>
+
+      {/* Benchmark Chart */}
+      {kbStatus && (
+        <div className="section">
+          <div className="section-label">Performance Benchmark</div>
+          <button className="btn btn-cyan" onClick={benchmark} disabled={busy.bench}>
+            {busy.bench ? <><span className="spin" /> Running ZK Proofs...</> : '⚡ Run Timing Benchmark'}
+          </button>
+          
+          {bench && (
+            <div style={{ marginTop: 16 }}>
+              <div className="stats-row">
+                <div className="stat"><div className="stat-val v1">~{bench.averages.baselineMs.toFixed(3)}</div><div className="stat-lbl">Standard RAG (ms)</div></div>
+                <div className="stat"><div className="stat-val v2">{bench.averages.proofGenMs.toFixed(0)}</div><div className="stat-lbl">ZK Proof Gen (ms)</div></div>
+                <div className="stat"><div className="stat-val v3">{bench.averages.proofVerifyMs.toFixed(0)}</div><div className="stat-lbl">ZK Verify (ms)</div></div>
+              </div>
+              <div className="chart-wrap"><canvas ref={chartRef} /></div>
+            </div>
+          )}
+        </div>
+      )}
 
     </div>
   );

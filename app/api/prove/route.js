@@ -27,6 +27,8 @@ export async function POST(req) {
       success: true,
       proof,
       publicSignals,
+      leafHash: chunkData.leafHash,
+      merkleRoot: chunkData.merkleRoot,
       proofGenerationMs: timingMs
     });
 
