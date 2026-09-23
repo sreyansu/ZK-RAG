@@ -1,0 +1,26 @@
+{
+  "name": "zk-rag",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "chart.js": "^4.5.1",
+    "circomlib": "^2.0.5",
+    "circomlibjs": "^0.1.7",
+    "next": "16.3.6",
+    "openai": "^7.22.0",
+    "react": "19.2.8",
+    "react-chartjs-2": "^5.3.1",
+    "react-dom": "19.2.8",
+    "snarkjs": "^0.7.6"
+  },
+  "devDependencies": {
+    "eslint": "^9",
+    "eslint-config-next": "16.3.6"
+  }
+}
