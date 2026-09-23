@@ -1,58 +1,37 @@
-// POST /api/prove — Generate Groth16 proof of Merkle inclusion
+import { NextResponse } from 'next/server';
+import { getChunkForProof } from '../../../lib/store.js';
+import { generateProof } from '../../../lib/prover.js';
 
-import { getDocument } from '@/lib/store';
-import { generateProof } from '@/lib/prover';
-
-export async function POST(request) {
+export async function POST(req) {
   try {
-    const { chunkId, documentId } = await request.json();
+    const { chunkId, documentId } = await req.json();
 
     if (chunkId === undefined || !documentId) {
-      return Response.json(
-        { success: false, error: 'Missing chunkId or documentId' },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: 'chunkId and documentId required' }, { status: 400 });
     }
 
-    const doc = getDocument(documentId);
-    if (!doc) {
-      return Response.json(
-        { success: false, error: 'Document not found' },
-        { status: 404 }
-      );
-    }
-
-    if (chunkId < 0 || chunkId >= doc.chunks.length) {
-      return Response.json(
-        { success: false, error: 'Invalid chunkId' },
-        { status: 400 }
-      );
-    }
-
-    const leafHash = doc.chunkHashes[chunkId];
-    const merklePath = doc.merklePaths[chunkId];
-    const merkleRoot = doc.merkleRoot;
-
+    // 1. Get the exact path elements and original hash from the specific document tree
+    const chunkData = getChunkForProof(documentId, chunkId);
+    
+    // 2. Generate the Groth16 zk-SNARK proof
     const { proof, publicSignals, timingMs } = await generateProof(
-      leafHash,
-      merkleRoot,
-      merklePath
+      chunkData.leafHash,
+      chunkData.merkleRoot,
+      {
+        pathElements: chunkData.pathElements,
+        pathIndices: chunkData.pathIndices
+      }
     );
 
-    return Response.json({
+    return NextResponse.json({
       success: true,
       proof,
       publicSignals,
-      merkleRoot,
-      leafHash,
-      chunkId,
-      proofGenerationMs: timingMs,
+      proofGenerationMs: timingMs
     });
+
   } catch (error) {
     console.error('Prove error:', error);
-    return Response.json(
-      { success: false, error: error.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }

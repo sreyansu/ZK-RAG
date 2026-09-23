@@ -1,126 +1,93 @@
-// POST /api/query — RAG Pipeline (baseline + ZK-enhanced)
-// Retrieves relevant chunks, calls LLM, returns answer with citations
+import { NextResponse } from 'next/server';
+import { searchAllChunks } from '../../../lib/store.js';
+import { generateEmbeddings } from '../../../lib/embeddings.js';
 
-import { getDocument } from '@/lib/store';
-import { retrieveTopK } from '@/lib/embeddings';
+// Minimal LLM interaction (uses OpenAI if key exists, otherwise simple response)
+async function generateAnswer(query, contextChunks) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  const contextText = contextChunks.map((c, i) => `[Source: ${c.documentName} | Chunk ${c.chunkId}]\n${c.text}`).join('\n\n');
+  
+  if (!apiKey || apiKey === 'your-key-here') {
+    return `(TF-IDF Fallback Mode - No LLM API Key)\n\nBased on your query "${query}", I found the following relevant information in our verified sources:\n\n${contextText}`;
+  }
 
-export async function POST(request) {
+  const prompt = `You are a helpful AI assistant. Answer the user's question using ONLY the provided context from our verified knowledge base. 
+If the answer is not in the context, say you don't know. Cite your sources using the document names.
+
+Context:
+${contextText}
+
+Question: ${query}`;
+
   try {
-    const { query, documentId } = await request.json();
-
-    if (!query || !documentId) {
-      return Response.json(
-        { success: false, error: 'Missing query or documentId' },
-        { status: 400 }
-      );
-    }
-
-    const doc = getDocument(documentId);
-    if (!doc) {
-      return Response.json(
-        { success: false, error: 'Document not found. Commit a document first.' },
-        { status: 404 }
-      );
-    }
-
-    const startTime = performance.now();
-
-    // Retrieve top-k chunks
-    const topChunks = await retrieveTopK(
-      query,
-      doc.embeddings,
-      doc.embeddingMetadata,
-      doc.chunks,
-      3
-    );
-
-    const retrievalMs = performance.now() - startTime;
-
-    // Build context for LLM
-    const context = topChunks
-      .map((c, i) => `[Source ${i + 1} (Chunk #${c.chunk.id})]:\n${c.chunk.text}`)
-      .join('\n\n---\n\n');
-
-    // Try to call LLM
-    let answer = '';
-    let llmMs = 0;
-    const llmStart = performance.now();
-
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (apiKey && apiKey !== 'your-key-here') {
-      try {
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            messages: [
-              {
-                role: 'system',
-                content: 'You are a helpful assistant. Answer the question based ONLY on the provided source documents. Cite which source(s) you used in your answer using [Source N] notation. Be concise but thorough.',
-              },
-              {
-                role: 'user',
-                content: `Question: ${query}\n\nSource Documents:\n${context}`,
-              },
-            ],
-            temperature: 0.3,
-            max_tokens: 500,
-          }),
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          answer = data.choices[0].message.content;
-        } else {
-          throw new Error(`OpenAI API error: ${response.status}`);
-        }
-      } catch (error) {
-        console.warn('LLM call failed:', error.message);
-        answer = generateFallbackAnswer(query, topChunks);
-      }
-    } else {
-      answer = generateFallbackAnswer(query, topChunks);
-    }
-
-    llmMs = performance.now() - llmStart;
-    const totalMs = performance.now() - startTime;
-
-    return Response.json({
-      success: true,
-      answer,
-      citations: topChunks.map(c => ({
-        chunkId: c.chunk.id,
-        text: c.chunk.text,
-        preview: c.chunk.text.substring(0, 150) + '...',
-        similarity: Math.round(c.similarity * 1000) / 1000,
-        tampered: c.chunk.tampered || false,
-      })),
-      timing: {
-        retrievalMs: Math.round(retrievalMs * 100) / 100,
-        llmMs: Math.round(llmMs * 100) / 100,
-        totalMs: Math.round(totalMs * 100) / 100,
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
       },
-      merkleRoot: doc.merkleRoot,
-      documentId,
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.2
+      })
     });
-  } catch (error) {
-    console.error('Query error:', error);
-    return Response.json(
-      { success: false, error: error.message },
-      { status: 500 }
-    );
+    
+    if (!res.ok) throw new Error('OpenAI API Error');
+    const data = await res.json();
+    return data.choices[0].message.content;
+  } catch (e) {
+    return `(Error calling LLM: ${e.message})\n\nFallback context:\n${contextText}`;
   }
 }
 
-function generateFallbackAnswer(query, topChunks) {
-  const snippets = topChunks
-    .slice(0, 2)
-    .map((c, i) => `[Source ${i + 1}] ${c.chunk.text.substring(0, 200)}`)
-    .join('\n\n');
+export async function POST(req) {
+  const startTotal = Date.now();
+  try {
+    const { query } = await req.json();
+    if (!query) throw new Error('Query is required');
 
-  return `Based on the retrieved sources:\n\n${snippets}\n\n(Note: This is a retrieval-only response. Set OPENAI_API_KEY in .env.local for full LLM-generated answers.)`;
+    // 1. Embed query
+    const queryVector = (await generateEmbeddings([query]))[0];
+
+    // 2. Retrieve top chunks globally from Knowledge Base
+    const startRetrieval = Date.now();
+    const topChunks = searchAllChunks(queryVector, 3);
+    const retrievalMs = Date.now() - startRetrieval;
+
+    if (topChunks.length === 0) {
+      return NextResponse.json({ success: true, answer: 'No relevant information found in the knowledge base.', citations: [] });
+    }
+
+    // 3. Generate Answer
+    const startLlm = Date.now();
+    const answer = await generateAnswer(query, topChunks);
+    const llmMs = Date.now() - startLlm;
+
+    // 4. Format citations for frontend
+    const citations = topChunks.map(c => ({
+      documentId: c.documentId,
+      documentName: c.documentName,
+      chunkId: c.chunkId,
+      similarity: c.similarity.toFixed(3),
+      preview: c.text.substring(0, 150) + '...',
+      text: c.text,
+      tampered: c.tampered
+    }));
+
+    return NextResponse.json({
+      success: true,
+      answer,
+      citations,
+      timing: {
+        retrievalMs,
+        llmMs,
+        totalMs: Date.now() - startTotal
+      }
+    });
+
+  } catch (error) {
+    console.error('Query Error:', error);
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+  }
 }
