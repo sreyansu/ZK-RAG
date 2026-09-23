@@ -198,7 +198,7 @@ html, body {
 
 /* ---------- Custom Dashboard UI ---------- */
 .metrics-grid {
-  display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; margin-top: 24px;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 24px; margin-top: 24px;
 }
 .metric-card {
   background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05);
@@ -212,29 +212,12 @@ html, body {
 .metric-body.bars { flex-direction: column; gap: 20px; }
 .metric-body.gauges { justify-content: space-around; }
 
-/* Custom Progress Bar */
-.custom-bar-container { width: 100%; }
-.custom-bar-header { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; margin-bottom: 8px; }
-.custom-bar-label { color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
-.custom-bar-value { font-family: var(--mono); color: var(--text); }
-.custom-bar-track { height: 8px; background: rgba(255,255,255,0.05); border-radius: 4px; overflow: hidden; }
-.custom-bar-fill { height: 100%; border-radius: 4px; transition: width 1s cubic-bezier(0.4, 0, 0.2, 1); }
-.custom-bar-fill.glow { box-shadow: 0 0 10px rgba(139,92,246,0.5); }
-.zk-badge { background: linear-gradient(90deg, #10b981, #06b6d4); color: #000; padding: 1px 4px; border-radius: 3px; font-size: 9px; font-weight: 800; }
-
-/* Custom Circular Gauge */
-.gauge-container { display: flex; flex-direction: column; align-items: center; gap: 12px; }
-.gauge-svg-wrap { position: relative; width: 100px; height: 100px; }
-.gauge-bg { fill: none; stroke: rgba(255,255,255,0.05); stroke-width: 8; }
-.gauge-fill { 
-  fill: none; stroke-width: 8; stroke-linecap: round;
-  transform: rotate(-90deg); transform-origin: 50% 50%;
-  transition: stroke-dashoffset 1.5s cubic-bezier(0.4, 0, 0.2, 1);
+.chart-wrapper {
+  position: relative;
+  height: 200px;
+  width: 100%;
+  margin-top: 16px;
 }
-.gauge-fill.glow-stroke { filter: drop-shadow(0 0 6px rgba(6,182,212,0.6)); }
-.gauge-center { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
-.gauge-value { font-family: var(--mono); font-size: 18px; font-weight: 700; color: var(--text); }
-.gauge-label { font-size: 11px; font-weight: 600; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
 
 /* ---------- Utilities ---------- */
 .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.2); border-top-color: currentColor; border-radius: 50%; animation: sp 0.6s linear infinite; }

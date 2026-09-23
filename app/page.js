@@ -2,58 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 
-// Custom sleek animated progress bar
-const ProgressBar = ({ label, value, max, color, isZk = false, unit = '' }) => {
-  const percent = Math.min((value / max) * 100, 100);
-  return (
-    <div className="custom-bar-container">
-      <div className="custom-bar-header">
-        <span className="custom-bar-label">{label} {isZk && <span className="zk-badge">ZK</span>}</span>
-        <span className="custom-bar-value">{value}{unit}</span>
-      </div>
-      <div className="custom-bar-track">
-        <div 
-          className={`custom-bar-fill ${isZk ? 'glow' : ''}`} 
-          style={{ 
-            width: `${percent}%`, 
-            background: color 
-          }}
-        />
-      </div>
-    </div>
-  );
-};
-
-// Custom sleek circular gauge
-const CircularGauge = ({ value, label, color, isZk = false }) => {
-  const radius = 45;
-  const circumference = 2 * Math.PI * radius;
-  const strokeDashoffset = circumference - (value / 100) * circumference;
-
-  return (
-    <div className="gauge-container">
-      <div className="gauge-svg-wrap">
-        <svg width="120" height="120" viewBox="0 0 100 100">
-          <circle cx="50" cy="50" r={radius} className="gauge-bg" />
-          <circle 
-            cx="50" cy="50" r={radius} 
-            className={`gauge-fill ${isZk ? 'glow-stroke' : ''}`}
-            style={{
-              strokeDasharray: circumference,
-              strokeDashoffset: strokeDashoffset,
-              stroke: color
-            }}
-          />
-        </svg>
-        <div className="gauge-center">
-          <span className="gauge-value">{value}%</span>
-        </div>
-      </div>
-      <div className="gauge-label">{label} {isZk && <span className="zk-badge">ZK</span>}</div>
-    </div>
-  );
-};
-
+let ChartJS = null;
 
 export default function Home() {
   const [kbStatus, setKbStatus] = useState(null);
@@ -69,9 +18,18 @@ export default function Home() {
   const [bench, setBench] = useState(null);
   const [busy, setBusy] = useState({});
   
+  // Refs for 7 metrics
+  const c1 = useRef(null);
+  const c2 = useRef(null);
+  const c3 = useRef(null);
+  const c4 = useRef(null);
+  const c5 = useRef(null);
+  const c6 = useRef(null);
+  const c7 = useRef(null);
+  const chartInsts = useRef([]);
+
   const setB = (k, v) => setBusy(b => ({ ...b, [k]: v }));
 
-  // ── Initialize Knowledge Base on Mount ──
   useEffect(() => {
     const initKB = async () => {
       setB('init', true);
@@ -79,25 +37,17 @@ export default function Home() {
         const r = await fetch('/api/init');
         const d = await r.json();
         if (d.success) setKbStatus(d);
-        else console.error('Failed to init KB:', d.error);
-      } catch (e) {
-        console.error(e);
-      }
+      } catch (e) { console.error(e); }
       setB('init', false);
     };
     initKB();
   }, []);
 
-  // ── Query ──
   const ask = async () => {
     if (!query.trim()) return;
     setB('query', true); setAnswer(''); setCitations([]); setVerifs({}); setProofData({});
     try {
-      const r = await fetch('/api/query', { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ query }) 
-      });
+      const r = await fetch('/api/query', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }) });
       const d = await r.json();
       if (d.success) { setAnswer(d.answer); setCitations(d.citations); setTiming(d.timing); }
       else alert(d.error);
@@ -105,44 +55,30 @@ export default function Home() {
     setB('query', false);
   };
 
-  // ── Verify ──
   const verify = async (docId, cid, text) => {
     const vKey = `${docId}-${cid}`;
     setB(`v${vKey}`, true); setVerifs(v => ({ ...v, [vKey]: null }));
     try {
-      const pr = await fetch('/api/prove', { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ chunkId: cid, documentId: docId }) 
-      });
+      const pr = await fetch('/api/prove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chunkId: cid, documentId: docId }) });
       const pd = await pr.json();
       if (!pd.success) { setVerifs(v => ({ ...v, [vKey]: { error: pd.error } })); setB(`v${vKey}`, false); return; }
       setProofData(p => ({ ...p, [vKey]: pd }));
 
       const doc = kbStatus.documents.find(d => d.id === docId);
 
-      const vr = await fetch('/api/verify', { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ chunkText: text, proof: pd.proof, publicSignals: pd.publicSignals, merkleRoot: doc.root }) 
-      });
+      const vr = await fetch('/api/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chunkText: text, proof: pd.proof, publicSignals: pd.publicSignals, merkleRoot: doc.root }) });
       const vd = await vr.json();
       setVerifs(v => ({ ...v, [vKey]: { ...vd, genMs: pd.proofGenerationMs } }));
     } catch (e) { setVerifs(v => ({ ...v, [vKey]: { error: e.message } })); }
     setB(`v${vKey}`, false);
   };
 
-  // ── Tamper ──
   const tamper = async (docId, cid) => {
     const tKey = `${docId}-${cid}`;
     const t = tamperText[tKey]; if (!t) return;
     setB(`t${tKey}`, true);
     try {
-      const r = await fetch('/api/tamper', { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ chunkId: cid, documentId: docId, tamperedText: t }) 
-      });
+      const r = await fetch('/api/tamper', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chunkId: cid, documentId: docId, tamperedText: t }) });
       const d = await r.json();
       if (d.success) {
         setCitations(c => c.map(x => (x.chunkId === cid && x.documentId === docId) ? { ...x, text: t, preview: t.substring(0, 150) + '...', tampered: true } : x));
@@ -157,11 +93,7 @@ export default function Home() {
     const tKey = `${docId}-${cid}`;
     setB(`r${tKey}`, true);
     try {
-      const r = await fetch('/api/tamper', { 
-        method: 'DELETE', 
-        headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ chunkId: cid, documentId: docId }) 
-      });
+      const r = await fetch('/api/tamper', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chunkId: cid, documentId: docId }) });
       const d = await r.json();
       if (d.success) {
         setCitations(c => c.map(x => (x.chunkId === cid && x.documentId === docId) ? { ...x, text: d.restoredText, preview: d.restoredText.substring(0, 150) + '...', tampered: false } : x));
@@ -171,7 +103,6 @@ export default function Home() {
     setB(`r${tKey}`, false);
   };
 
-  // ── Benchmark ──
   const benchmark = async () => {
     setB('bench', true);
     try {
@@ -183,11 +114,90 @@ export default function Home() {
     setB('bench', false);
   };
 
-  // ────────── RENDER ──────────
+  useEffect(() => {
+    if (!bench) return;
+    (async () => {
+      if (!ChartJS) { 
+        const m = await import('chart.js'); 
+        m.Chart.register(...m.registerables); 
+        ChartJS = m.Chart; 
+      }
+      
+      chartInsts.current.forEach(c => c.destroy());
+      chartInsts.current = [];
+
+      ChartJS.defaults.color = '#a1a1aa';
+      ChartJS.defaults.font.family = "'Inter', sans-serif";
+
+      const createBarChart = (ref, metric) => {
+        if (!ref.current) return;
+        const ctx = ref.current.getContext('2d');
+        const gradStd = ctx.createLinearGradient(0, 0, 0, 400);
+        gradStd.addColorStop(0, '#52525b'); gradStd.addColorStop(1, '#27272a');
+        
+        const gradZk = ctx.createLinearGradient(0, 0, 0, 400);
+        gradZk.addColorStop(0, metric.colorZk); gradZk.addColorStop(1, '#1e1b4b'); // faint fade
+
+        const c = new ChartJS(ctx, {
+          type: 'bar',
+          data: {
+            labels: ['Standard', 'ZK-RAG'],
+            datasets: [{
+              data: [metric.standard, metric.zkrag],
+              backgroundColor: [gradStd, gradZk],
+              borderRadius: 6,
+              borderSkipped: false,
+              barPercentage: 0.7,
+            }]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              y: { beginAtZero: true, grid: { color: 'rgba(255, 255, 255, 0.05)', drawBorder: false }, ticks: { padding: 8 } },
+              x: { grid: { display: false, drawBorder: false }, ticks: { padding: 8, font: { weight: 'bold' } } }
+            }
+          }
+        });
+        chartInsts.current.push(c);
+      };
+
+      const createDoughnutChart = (ref, metric) => {
+        if (!ref.current) return;
+        const ctx = ref.current.getContext('2d');
+        const c = new ChartJS(ctx, {
+          type: 'doughnut',
+          data: {
+            labels: ['Standard RAG', 'ZK-RAG'],
+            datasets: [{
+              data: [metric.standard, metric.zkrag],
+              backgroundColor: ['#52525b', metric.colorZk],
+              borderWidth: 0,
+              hoverOffset: 4
+            }]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false, cutout: '75%',
+            plugins: { legend: { position: 'bottom', labels: { padding: 20, usePointStyle: true, pointStyle: 'circle', font: { size: 10 } } } }
+          }
+        });
+        chartInsts.current.push(c);
+      };
+
+      createBarChart(c1, bench.accuracy);
+      createBarChart(c2, bench.quality);
+      createBarChart(c3, bench.response);
+      createBarChart(c4, bench.throughput);
+      createDoughnutChart(c5, bench.verification);
+      createDoughnutChart(c6, bench.tamper);
+      createBarChart(c7, bench.privacy);
+
+    })();
+    return () => { chartInsts.current.forEach(c => c.destroy()); };
+  }, [bench]);
 
   return (
     <div className="app">
-      {/* Header */}
       <div className="header">
         <div className="hero-badge">Next-Gen Cryptography</div>
         <h1>ZK-RAG Engine</h1>
@@ -195,7 +205,6 @@ export default function Home() {
         <div className="tech">Powered by Groth16 zk-SNARKs • Poseidon Merkle Trees • Vector Search</div>
       </div>
 
-      {/* KB Status */}
       <div className="section premium-box">
         <div className="section-label">Verified Knowledge Base</div>
         {!kbStatus ? (
@@ -220,7 +229,6 @@ export default function Home() {
         )}
       </div>
 
-      {/* Query */}
       <div className="section premium-box">
         <div className="section-label">Ask a Question</div>
         <div className="search-bar-wrap">
@@ -244,7 +252,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* Citations */}
         {citations.length > 0 && (
           <div style={{ marginTop: 32 }}>
             <div className="section-label flex-between">
@@ -279,7 +286,6 @@ export default function Home() {
                       )}
                     </div>
 
-                    {/* Verification result */}
                     {verifs[vKey] && (
                       <div className="verification-result">
                         {verifs[vKey].error ? (
@@ -316,7 +322,6 @@ export default function Home() {
                       </div>
                     )}
 
-                    {/* Tamper panel */}
                     {tamperOpen[vKey] && (
                       <div className="tamper-panel">
                         <div className="tamper-header">
@@ -339,7 +344,6 @@ export default function Home() {
         )}
       </div>
 
-      {/* Benchmark Metrics Dashboard */}
       {kbStatus && (
         <div className="section premium-box" style={{ paddingBottom: 40, marginBottom: 80 }}>
           <div className="section-label">Architecture Evaluation Dashboard</div>
@@ -352,39 +356,44 @@ export default function Home() {
           ) : (
             <div className="metrics-grid">
               
-              {/* Performance Metrics (Horizontal Bars) */}
               <div className="metric-card">
                 <div className="metric-header">
-                  <h3>{bench.latency.title}</h3>
-                  <p>{bench.latency.desc}</p>
+                  <h3>{bench.accuracy.title}</h3>
+                  <p>{bench.accuracy.desc}</p>
                 </div>
-                <div className="metric-body bars">
-                  <ProgressBar label="Standard RAG" value={bench.latency.standard} max={200} color="#52525b" unit="ms" />
-                  <ProgressBar label="ZK-RAG" value={bench.latency.zkrag} max={200} color="linear-gradient(90deg, #8b5cf6, #3b82f6)" isZk unit="ms" />
-                </div>
+                <div className="chart-wrapper"><canvas ref={c1}></canvas></div>
               </div>
               
               <div className="metric-card">
                 <div className="metric-header">
-                  <h3>{bench.overhead.title}</h3>
-                  <p>{bench.overhead.desc}</p>
+                  <h3>{bench.quality.title}</h3>
+                  <p>{bench.quality.desc}</p>
                 </div>
-                <div className="metric-body bars">
-                  <ProgressBar label="Standard RAG" value={bench.overhead.standard} max={3.0} color="#52525b" unit="x" />
-                  <ProgressBar label="ZK-RAG" value={bench.overhead.zkrag} max={3.0} color="linear-gradient(90deg, #8b5cf6, #3b82f6)" isZk unit="x" />
-                </div>
+                <div className="chart-wrapper"><canvas ref={c2}></canvas></div>
               </div>
 
-              {/* Security Metrics (Circular Gauges) */}
               <div className="metric-card">
                 <div className="metric-header">
-                  <h3>{bench.trust.title}</h3>
-                  <p>{bench.trust.desc}</p>
+                  <h3>{bench.response.title}</h3>
+                  <p>{bench.response.desc}</p>
                 </div>
-                <div className="metric-body gauges">
-                  <CircularGauge label="Standard RAG" value={bench.trust.standard} color="#52525b" />
-                  <CircularGauge label="ZK-RAG" value={bench.trust.zkrag} color="#10b981" isZk />
+                <div className="chart-wrapper"><canvas ref={c3}></canvas></div>
+              </div>
+              
+              <div className="metric-card">
+                <div className="metric-header">
+                  <h3>{bench.throughput.title}</h3>
+                  <p>{bench.throughput.desc}</p>
                 </div>
+                <div className="chart-wrapper"><canvas ref={c4}></canvas></div>
+              </div>
+              
+              <div className="metric-card">
+                <div className="metric-header">
+                  <h3>{bench.verification.title}</h3>
+                  <p>{bench.verification.desc}</p>
+                </div>
+                <div className="chart-wrapper"><canvas ref={c5}></canvas></div>
               </div>
 
               <div className="metric-card">
@@ -392,10 +401,15 @@ export default function Home() {
                   <h3>{bench.tamper.title}</h3>
                   <p>{bench.tamper.desc}</p>
                 </div>
-                <div className="metric-body gauges">
-                  <CircularGauge label="Standard RAG" value={bench.tamper.standard} color="#52525b" />
-                  <CircularGauge label="ZK-RAG" value={bench.tamper.zkrag} color="#06b6d4" isZk />
+                <div className="chart-wrapper"><canvas ref={c6}></canvas></div>
+              </div>
+              
+              <div className="metric-card">
+                <div className="metric-header">
+                  <h3>{bench.privacy.title}</h3>
+                  <p>{bench.privacy.desc}</p>
                 </div>
+                <div className="chart-wrapper"><canvas ref={c7}></canvas></div>
               </div>
 
             </div>
