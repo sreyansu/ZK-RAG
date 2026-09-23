@@ -265,6 +265,12 @@ export default function Home() {
                             <div><b>SNARK valid:</b> {verifs[vKey].snarkValid ? '✅' : '❌'}</div>
                             <div><b>Hash match:</b> {verifs[vKey].hashMatches ? '✅' : '❌'}</div>
                             <div><b>Root match:</b> {verifs[vKey].rootMatches ? '✅' : '❌'}</div>
+                            {proofData[vKey]?.leafHash && (
+                              <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)', fontSize: 11, fontFamily: 'monospace', color: 'var(--text-muted)' }}>
+                                <div><b>Leaf Hash:</b> {proofData[vKey].leafHash.substring(0, 15)}...{proofData[vKey].leafHash.substring(proofData[vKey].leafHash.length - 15)}</div>
+                                <div><b>Merkle Root:</b> {proofData[vKey].merkleRoot.substring(0, 15)}...{proofData[vKey].merkleRoot.substring(proofData[vKey].merkleRoot.length - 15)}</div>
+                              </div>
+                            )}
                           </div>
                         </>
                       )}
